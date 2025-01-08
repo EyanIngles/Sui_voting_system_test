@@ -33,7 +33,8 @@ module flashloan::voting {
     public struct Proposal_tracker has key, store {
         id: UID,
         existing_proposal: bool,
-        current_proposal: table::Table<u64, Proposal_for_voting>
+        current_proposal: table::Table<u64, Proposal_for_voting>,
+        last_proposal_decision: bool
     }
 
     //public struct Transaction_voted_fail has key { // not sure if we need to have a fail or pass struct.
@@ -50,7 +51,8 @@ module flashloan::voting {
         let tracker = Proposal_tracker {
             id: object::new(ctx),
             existing_proposal: false,
-            current_proposal: table::new(ctx)
+            current_proposal: table::new(ctx),
+            last_proposal_decision: false
         };
         transfer::public_share_object(tracker);
     }
@@ -90,7 +92,6 @@ module flashloan::voting {
         if(table.current_time >= table.end_time) {
             abort(PROPOSAL_TIME_COMPLETE)
         };
-        // assert! that the sender has tokens in their account. 
         let original_amount = table.votes_yes;
         table.votes_yes = original_amount + amount_of_votes;
     }
@@ -103,25 +104,47 @@ module flashloan::voting {
         update_proposal_time(tracker, ctx);
         let table = table::borrow_mut(&mut tracker.current_proposal, 1);
         if(table.current_time >= table.end_time) {
-            abort(PROPOSAL_TIME_COMPLETE)
+
+            let no_votes = table.votes_no;
+            let yes_votes = table.votes_yes;
+            let final_decision = calculate_final_decision(yes_votes, no_votes, ctx);
+            complete_proposal(final_decision, tracker, ctx);
+            return
         };
-        // assert! that the sender has tokens in their account. 
         let original_amount = table.votes_no;
         table.votes_no = original_amount + amount_of_votes;
     }
 
                                                     /// Helpers:
     // check to see if proposal is still active
-    public fun check_if_active(proposal: &Proposal_for_voting):bool {
-        let is_active = proposal.still_active;
+    public fun check_if_active(tracker: &Proposal_tracker):bool {
+        let table = table::borrow(&tracker.current_proposal, 1);
+        let is_active = table.still_active;
         return is_active
     }
-
+    public fun check_last_proposal_decision(tracker: &Proposal_tracker):bool {
+        let last_decision = tracker.last_proposal_decision;
+        return last_decision
+    }
+                                        //Updaters:
     // update the proposal time and ensuring that voters cant vote even after the time.
     fun update_proposal_time(tracker: &mut Proposal_tracker, ctx: &TxContext) {
         let update_time = ctx.epoch_timestamp_ms();
         let table = table::borrow_mut(&mut tracker.current_proposal, 1);
         table.current_time = update_time;
+    }
+    fun complete_proposal(final_decision: bool, tracker: &mut Proposal_tracker, _ctx: &mut TxContext) {
+        // check the time and ensuring its over,
+        tracker.last_proposal_decision = final_decision;
+        tracker.existing_proposal = false;
+    }
+
+    fun calculate_final_decision(yes_votes: u64, no_votes: u64, _ctx: &mut TxContext):bool {
+        let mut final_decision= true;
+        if(yes_votes < no_votes) {
+            final_decision = false
+        };
+        return final_decision
     }
 
     /// testing functions: soul purpose is for testing these operation of the smart contract.
