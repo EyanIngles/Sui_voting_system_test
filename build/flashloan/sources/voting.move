@@ -153,5 +153,24 @@ module flashloan::voting {
         proposal.still_active = false;
     }
 
+    public fun test_update_proposal_time(tracker: &mut Proposal_tracker, ctx: &TxContext) {
+        let update_time = ctx.epoch_timestamp_ms();
+        let table = table::borrow_mut(&mut tracker.current_proposal, 1);
+        table.current_time = update_time;
+    }
+    public fun test_complete_proposal(final_decision: bool, tracker: &mut Proposal_tracker, _ctx: &mut TxContext) {
+        // check the time and ensuring its over,
+        tracker.last_proposal_decision = final_decision;
+        tracker.existing_proposal = false;
+    }
+
+    public fun test_calculate_final_decision(yes_votes: u64, no_votes: u64, _ctx: &mut TxContext):bool {
+        let mut final_decision= true;
+        if(yes_votes < no_votes) {
+            final_decision = false
+        };
+        return final_decision
+    }
+    
 
 }

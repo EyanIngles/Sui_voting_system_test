@@ -17,15 +17,16 @@ module flashloan::voting {
     // if something exists or not.????
     
     // proposal that is created for a voting system to begin.
-    public struct Proposal_for_voting has key, store { 
+    public struct Proposal_for_voting has store, drop { 
         // should have a few fields for descriptions
-        id: UID,
-        amount: u64, 
-        current_time: u64, 
-        end_time: u64, 
-        still_active : bool,
-        votes_yes: u64,
-        votes_no: u64
+        //id: UID, // we keep the key for transparency // maybe not
+        amount: u64, // amount requesting to take out. maybe this should be balance or coin instead of amount showing that the true value is being controlled by smart contract.
+        destination: address, // address that the money is going to be transferred too.
+        current_time: u64, // this is to keep track of the time and how much longer till end time.
+        end_time: u64,  // past this time, no one can vote and the proposal will be closed.
+        still_active : bool, // checking to see if this proposal is active still.
+        votes_yes: u64, // the amount yes votes token holders have voted yes for.
+        votes_no: u64 // the opposite but no votes.
     }
 
     // a tracker that the proposal is then attached too, this will be its own object
@@ -58,7 +59,7 @@ module flashloan::voting {
     }
 
     // this is to create a new voting proposal for token holders to then vote what to do.
-    public fun start_new_vote(tracker: &mut Proposal_tracker, proposed_transfer_amount: u64, end_time_in_hours: u64, ctx: &mut TxContext) {
+    public fun start_new_vote(tracker: &mut Proposal_tracker, proposed_transfer_amount: u64, sending_too: address, end_time_in_hours: u64, ctx: &mut TxContext) {
         let is_existing = tracker.existing_proposal;
         if(is_existing == true) {
             abort(PROPOSAL_EXISTING_IS_NOT_FINALISED)
@@ -67,8 +68,9 @@ module flashloan::voting {
         let new_epoch_value = end_time_in_hours * ONE_HOUR_EPOCH_VALUE;
         let end_time = current_time + new_epoch_value;
         let proposal = Proposal_for_voting {
-            id: object::new(ctx),
+            //id: object::new(ctx),
             amount: proposed_transfer_amount,
+            destination: sending_too,
             current_time, 
             end_time,  
             still_active : true,
@@ -126,7 +128,7 @@ module flashloan::voting {
         let last_decision = tracker.last_proposal_decision;
         return last_decision
     }
-                                        //Updaters:
+                                                    ///Updaters:
     // update the proposal time and ensuring that voters cant vote even after the time.
     fun update_proposal_time(tracker: &mut Proposal_tracker, ctx: &TxContext) {
         let update_time = ctx.epoch_timestamp_ms();
@@ -134,9 +136,18 @@ module flashloan::voting {
         table.current_time = update_time;
     }
     fun complete_proposal(final_decision: bool, tracker: &mut Proposal_tracker, _ctx: &mut TxContext) {
-        // check the time and ensuring its over,
+        
         tracker.last_proposal_decision = final_decision;
         tracker.existing_proposal = false;
+        if(final_decision == false) {
+            return
+        };
+        let table = table::borrow_mut(&mut tracker.current_proposal, 1);
+        let transfer_address = table.destination;
+        let proposed_amount = table.amount; // convert this to the token required.... in future the coin or balance will be the amount.
+        // complete the transfer
+        let destination = table.destination; 
+        table::remove(&mut tracker.current_proposal, 1);
     }
 
     fun calculate_final_decision(yes_votes: u64, no_votes: u64, _ctx: &mut TxContext):bool {
@@ -153,5 +164,24 @@ module flashloan::voting {
         proposal.still_active = false;
     }
 
+    public fun test_update_proposal_time(tracker: &mut Proposal_tracker, ctx: &TxContext) {
+        let update_time = ctx.epoch_timestamp_ms();
+        let table = table::borrow_mut(&mut tracker.current_proposal, 1);
+        table.current_time = update_time;
+    }
+    public fun test_complete_proposal(final_decision: bool, tracker: &mut Proposal_tracker, _ctx: &mut TxContext) {
+        // check the time and ensuring its over,
+        tracker.last_proposal_decision = final_decision;
+        tracker.existing_proposal = false;
+    }
+
+    public fun test_calculate_final_decision(yes_votes: u64, no_votes: u64, _ctx: &mut TxContext):bool {
+        let mut final_decision= true;
+        if(yes_votes < no_votes) {
+            final_decision = false
+        };
+        return final_decision
+    }
+    
 
 }
